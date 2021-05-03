@@ -1,0 +1,154 @@
+---
+# defined tasks to install a jenkins ci server along with apache2 proxy server
+
+# setup variables for os-specific
+- name: include os-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  tags:
+    - setup
+
+# define jenkins repo url
+- name: define jenkins_repo_url
+  set_fact:
+    jenkins_repo_url: "{{ __jenkins_repo_url }}"
+  when: jenkins_repo_url is not defined
+  tags:
+    - setup
+
+# define jenkins repo key
+- name: define jenkins_repo_key_url
+  set_fact:
+    jenkins_repo_key_url: "{{ __jenkins_repo_key_url }}"
+  when: jenkins_repo_key_url is not defined
+  tags:
+    - setup
+
+# define jenkins pkg url
+- name: define jenkins_pkg_url
+  set_fact:
+    jenkins_pkg_url: "{{ __jenkins_pkg_url }}"
+  when: jenkins_pkg_url is not defined
+  tags:
+    - setup
+
+# include tasks for debian
+- include_tasks: setup-Debian.yml
+  when: ansible_os_family == 'Debian'
+  tags:
+    - update
+
+# configure jenkins init settings
+- include_tasks: settings.yml
+  tags:
+    - update
+
+# make sure jenkins starts, then configure jenkins
+- name: ensure jenkins is started and runs on startup
+  service: name=jenkins state=started enabled=yes
+  tags:
+    - update
+
+# wait for jenkins to starting up before preceeding
+- name: wait for jenkins to start up before proceeding
+  shell: |
+    curl -D - --silent --max-time 5 http://{{ jenkins_hostname }}:{{ jenkins_http_port }}{{ jenkins_url_prefix }}/cli/
+  args:
+    warn: false
+  register: result
+  until: >
+    (result.stdout.find("403 Forbidden") != -1)
+    or (result.stdout.find("200 OK") != -1)
+    and (result.stdout.find("Please wait while") == -1)
+  retries: "{{ jenkins_connection_retries }}"
+  delay: "{{ jenkins_connection_delay }}"
+  changed_when: false
+  check_mode: false
+  tags:
+    - update
+
+# getting jenkins cli jarfile from jenkins server
+- name: get the jenkins-cli jarfile from the jenkins server
+  get_url:
+    url: "http://{{ jenkins_hostname }}:{{ jenkins_http_port }}{{ jenkins_url_prefix }}/jnlpJars/jenkins-cli.jar"
+    dest: "{{ jenkins_jar_location }}"
+  register: jarfile_get
+  until: "'OK' in jarfile_get.msg or '304' in jarfile_get.msg or 'file already exists' in jarfile_get.msg"
+  retries: 5
+  delay: 10
+  check_mode: false
+  tags:
+    - update
+
+# removing jenkins security init scripts
+- name: remove jenkins security init scripts after first startup
+  file:
+    path: "{{ jenkins_home }}/init.groovy.d/basic-security.groovy"
+    state: absent
+  tags:
+    - update
+
+# update jenkins and install configured plugins
+- include_tasks: plugins.yml
+  tags:
+    - update
+
+# add jenkins user to the sudoers group
+- name: add jenkins user to the sudoers
+  shell: |
+    adduser jenkins sudo
+  tags:
+    - update
+
+# no password for sudoers group
+- name: no passwd for sudoers group
+  lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: '^%sudo'
+    line: "%sudo ALL=(ALL) NOPASSWD: ALL"
+  tags:
+    - update
+
+# including apache setup
+- name: add apache2 vhost for jenkins
+  copy: src=jenkins.conf dest=/etc/apache2/sites-available/jenkins.conf owner=root group=root mode=0600
+  tags:
+    - install
+
+# including servername into apache2.conf file in order to rely in qualified domain name
+- name: including servername into apache2.conf file
+  shell: |
+    echo 'ServerName 127.0.0.1' >> /etc/apache2/apache2.conf
+  tags:
+    - install
+
+# configuring apache2 proxy
+- name: configure apache2 mod proxy
+  shell: a2enmod proxy proxy_http
+  tags:
+    - install
+
+# enable jenkins config in apache2
+- name: enable jenkins config in apache2
+  shell: "{{ item }}"
+  with_items:
+    - a2dissite 000-default
+    - a2ensite jenkins
+  tags:
+    - install
+
+# reload apache2 config to activate the new configuration
+- name: reload apache2 config to activate the new configuration
+  service:
+    name: apache2
+    state: reloaded
+  tags:
+    - install
+
+# restart apache2 for jenkins
+- name: restart apache2 for jenkins
+  shell: |
+    apache2ctl restart
+  tags:
+    - install
+

@@ -1,0 +1,7 @@
+---
+# tasks file for java8
+- name: install openjdk with java 8
+  become: yes
+  apt: name={{item}} state=latest
+  with_items:
+    - default-jdk

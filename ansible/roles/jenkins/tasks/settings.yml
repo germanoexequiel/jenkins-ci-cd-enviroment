@@ -1,0 +1,145 @@
+---
+# checking if jenkins init_file exists
+- name: check if jenkins_init_file exists
+  stat:
+    path: "{{ jenkins_init_file }}"
+  register: jenkins_init_file_stat
+  tags:
+    - setup
+
+# ensure jenkins init_file exists
+- name: ensure jenkins_init_file exists
+  file:
+    path: "{{ jenkins_init_file }}"
+    state: touch
+  when: not jenkins_init_file_stat.stat.exists
+  tags:
+    - setup
+
+# modify variables in init file
+- name: modify variables in init file
+  lineinfile:
+    dest: "{{ jenkins_init_file }}"
+    insertafter: '^{{ item.option }}='
+    regexp: '^{{ item.option }}=\"\${{ item.option }} '
+    line: '{{ item.option }}="${{ item.option }} {{ item.value }}"'
+    state: present
+  with_items: "{{ jenkins_init_changes }}"
+  register: jenkins_init_prefix
+  tags:
+    - update
+
+# set jenkins home directory
+- name: set the jenkins home directory
+  lineinfile:
+    dest: "{{ jenkins_init_file }}"
+    regexp: '^JENKINS_HOME=.*'
+    line: 'JENKINS_HOME={{ jenkins_home }}'
+  register: jenkins_home_config
+  tags:
+    - update
+
+# restart jenkins after applying conf changes
+- name: immediately restart jenkins on init config changes
+  service: name=jenkins state=restarted
+  when: jenkins_init_prefix.changed
+  tags: ['skip_ansible_lint']
+  
+# setting http port used by jenkins 
+- name: set http port in jenkins config
+  lineinfile:
+    backrefs: true
+    dest: "{{ jenkins_init_file }}"
+    regexp: '^{{ jenkins_http_port_param }}='
+    line: '{{ jenkins_http_port_param }}={{ jenkins_http_port }}'
+  register: jenkins_http_config
+  tags:
+    - update
+
+# make sure jenkins home exists
+- name: ensure jenkins_home {{ jenkins_home }} exists
+  file:
+    path: "{{ jenkins_home }}"
+    state: directory
+    owner: "{{ jenkins_process_user }}" 
+    group: "{{ jenkins_process_group }}"
+    mode: u+rwx
+    follow: true
+  tags:
+    - update
+
+# create jenkins updates directory 
+- name: create jenkins updates directory 
+  file:
+    path: "{{ jenkins_home }}/updates"
+    state: directory
+    recurse: yes
+    owner: "{{ jenkins_process_user }}"
+    group: "{{ jenkins_process_group }}"
+    mode: '0750'
+  tags:
+    - update
+      
+# define keys directory
+- name: define keys directory
+  set_fact:
+    keys_path: /opt/keys
+  tags:
+    - setup
+
+# validate keys directory
+- name: validate keys directory
+  file:
+    path: '{{ keys_path }}'
+    state: directory
+    recurse: yes
+    owner: "{{ jenkins_process_user }}"
+    group: "{{ jenkins_process_group }}"
+    mode: '0750'
+  tags:
+    - setup
+
+# define build project directory
+- name: define build project directory
+  set_fact:
+    build_path: /opt/builds
+  tags:
+    - setup
+
+# validate build project directory
+- name: validate build project directory
+  file:
+    path: '{{ build_path }}'
+    state: directory
+    recurse: yes
+    owner: "{{ jenkins_process_user }}"
+    group: "{{ jenkins_process_group }}"
+    mode: '0755'
+  tags:
+    - setup
+
+# create custom init scripts directory
+- name: create custom init scripts directory
+  file:
+    path: "{{ jenkins_home }}/init.groovy.d"
+    state: directory
+    owner: "{{ jenkins_process_user }}"
+    group: "{{ jenkins_process_group }}"
+    mode: 0775
+  tags:
+    - install
+
+# trigger handlers immediately in case Jenkins was installed
+- name: trigger handlers immediately in case jenkins was installed
+  meta: flush_handlers
+  tags:
+    - install
+
+# inmediately restart Jenkins on http or user changes
+- name: immediately restart jenkins on http or user changes
+  service: name=jenkins state=restarted
+  when: >
+    (jenkins_users_config is defined and jenkins_users_config.changed)
+    or (jenkins_http_config is defined and jenkins_http_config.changed)
+    or (jenkins_home_config is defined and jenkins_home_config.changed)
+  tags: ['skip_ansible_lint']

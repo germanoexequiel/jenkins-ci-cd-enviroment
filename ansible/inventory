@@ -1,0 +1,11 @@
+[local]
+localhost ansible_connection=local ansible_user=ubuntu
+
+[jenkins-ci-cd-enviroment]
+jenkins-ci-cd-enviroment ansible_host=127.0.0.1 ansible_connection=ssh ansible_user=vagrant ansible_port=22 ansible_ssh_private_key_file=.vagrant/machines/jenkins-ci-cd-enviroment/virtualbox/private_key ansible_python_interpreter=/usr/bin/python
+
+[enviroment-ops-cicd-srvr1]
+10.0.6.22 ansible_host=10.0.6.22 ansible_user=ubuntu
+
+[enviroment-dev-srvr1]
+10.100.14.93 ansible_host=10.100.14.93 ansible_user=ubuntu

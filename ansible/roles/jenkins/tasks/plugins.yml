@@ -1,0 +1,71 @@
+---
+# jenkins_plugin module doesn't support password files
+- name: get jenkins admin password from file
+  slurp:
+    src: "{{ jenkins_admin_password_file }}"
+  register: adminpasswordfile
+  no_log: true
+  when: jenkins_admin_password_file != ""
+  tags: ['skip_ansible_lint']
+
+# set jenkins admin password fact
+- name: set jenkins admin password fact
+  set_fact:
+    jenkins_admin_password: "{{ adminpasswordfile['stdout'] | default(jenkins_admin_password) }}"
+  no_log: true
+  tags:
+    - setup
+
+# update jenkins so that plugin updates don't fail
+- name: create jenkins updates directory
+  file:
+    path: "{{ jenkins_home }}/updates"
+    state: directory
+    owner: "{{ jenkins_process_user }}"
+    group: "{{ jenkins_process_group }}"
+  tags:
+    - setup
+
+# download current plugin updates from jenkins update site
+- name: download current plugin updates from jenkins update site
+  get_url:
+    url: "{{ jenkins_updates_url }}/update-center.json"
+    dest: "{{ jenkins_home }}/updates/default.json"
+    owner: "{{ jenkins_process_user }}"
+    group: "{{ jenkins_process_group }}"
+    mode: 0440
+  changed_when: false
+  register: get_result
+  until: get_result is success
+  retries: 3
+  delay: 2
+  tags:
+    - setup
+
+# update json file for jenkins
+- name: remove first and last line from json file.
+  replace:
+    path: "{{ jenkins_home }}/updates/default.json"
+    regexp: "1d;$d"
+  tags:
+    - update
+
+# install jenkins plugins using password
+- name: install jenkins plugins using password
+  jenkins_plugin:
+    name: "{{ item }}"
+    jenkins_home: "{{ jenkins_home }}"
+    state: "{{ jenkins_plugins_state }}"
+    url_username: "{{ jenkins_admin_username }}"
+    url_password: "{{ jenkins_admin_password }}"
+    timeout: "{{ jenkins_plugin_timeout }}"
+    updates_expiration: "{{ jenkins_plugin_updates_expiration }}"
+    with_dependencies: "{{ jenkins_plugins_install_dependencies }}"
+  with_items: "{{ jenkins_plugins }}"
+  notify: restart jenkins server 
+  tags: ['skip_ansible_lint']
+  register: plugin_result
+  until: plugin_result is success
+  retries: 3
+  delay: 2
+

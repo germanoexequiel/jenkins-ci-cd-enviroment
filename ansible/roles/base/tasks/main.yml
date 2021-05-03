@@ -1,0 +1,30 @@
+---
+# upgrade all packages
+- name: upgrade all packages
+  become: yes
+  apt: upgrade=dist
+
+- name: install software base
+  become: yes
+  apt:
+    pkg:
+    - sudo
+    - acl
+    - build-essential
+    - iputils-ping
+    - net-tools
+    - wget
+    - curl
+    - unzip
+    - git
+    - less
+    - vim
+    - apt-transport-https
+    - maven
+    - expect
+    - xvfb
+    - jq
+    - gnupg2
+    - pass
+    update_cache: yes
+
